@@ -52,6 +52,7 @@ export interface TaskStatus {
   routes?: OptimizedRoute[]
   error?: string
   completed_at?: string
+  result? : any
 }
 
 interface SupplyChainState {

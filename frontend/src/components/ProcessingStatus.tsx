@@ -43,8 +43,9 @@ export const ProcessingStatus: React.FC<ProcessingStatusProps> = ({ taskId, onCo
         const status = await SupplyChainAPI.getTaskStatus(taskId)
         setCurrentTask(status)
         
-        if (status.status === 'completed' && status.routes) {
-          onComplete(status.routes)
+        if (status.status === 'completed' && status.result) {
+          const finalRoutes = status.result.route_optimization.optmized_routes
+          onComplete(finalRoutes)
         }
       } catch (error) {
         console.error('Error polling status:', error)
@@ -139,8 +140,8 @@ export const ProcessingStatus: React.FC<ProcessingStatusProps> = ({ taskId, onCo
           color={getStatusColor(currentTask.status) as any}
           variant="filled"
           icon={
-            currentTask.status === 'completed' ? <CheckCircle /> :
-            currentTask.status === 'failed' ? <Error /> :
+            currentTask.status.includes('complete') ? <CheckCircle /> :
+            currentTask.status.includes('fail') ? <Error /> :
             <Schedule />
           }
         />
@@ -219,7 +220,7 @@ export const ProcessingStatus: React.FC<ProcessingStatusProps> = ({ taskId, onCo
       </Collapse>
 
       {/* Completion Summary */}
-      {currentTask.status === 'completed' && currentTask.routes && (
+      {currentTask.routes && (
         <Alert severity="success" sx={{ mb: 2 }}>
           <Typography variant="body2">
             ✅ Processing completed! Generated {currentTask.routes.length} optimized routes.

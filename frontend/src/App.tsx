@@ -48,6 +48,19 @@ function App() {
     }
 
     testConnection()
+
+    const fetchRoutes = async () => {
+      try {
+        const response = await SupplyChainAPI.getRoutes()
+        setRoutes(response.routes)
+      } catch (error) {
+        console.error('Failed to fetch routes:', error)
+        setAppError('Failed to fetch routes. Check console for details.')
+      }
+    }
+    if (routes.length === 0) {
+      fetchRoutes()
+    }
   }, [])
 
   const handleUploadComplete = (taskId: string) => {

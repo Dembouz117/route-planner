@@ -1,136 +1,130 @@
+# Load environment variables first, before any other imports
+from dotenv import load_dotenv
 import os
-import json
-import uuid
-import asyncio
-from datetime import datetime
-from typing import List, Dict, Any, Optional, Annotated
-from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+# Load .env file from multiple possible locations
+env_loaded = False
+env_paths = [".env", "backend/.env", "../.env"]
+
+for env_path in env_paths:
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=True)
+        print(f"✅ Loaded .env from: {env_path}")
+        env_loaded = True
+        break
+
+if not env_loaded:
+    print("⚠️ No .env file found, using system environment variables")
+
+# Verify API key is loaded
+anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+print(f"Anthropic API Key loaded: {anthropic_key is not None}")
+if anthropic_key:
+    print(f"API Key preview: {anthropic_key[:10]}...")
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import pandas as pd
-import aiofiles
+from typing import Dict, Any, List, Optional
+import uuid
+import json
+from datetime import datetime
 
-# Import organized modules
+# Import the corrected agents with LLM integration
 from agents.information_agent import InformationAgent
 from agents.route_planning_agent import RoutePlanningAgent
-from models.schemas import (
-    LocationPoint, DeviceForecast, UploadData, RoutePoint, 
-    OptimizedRoute, AgentResult, InformationAgentState, RoutePlanningState
-)
-from services.external_clients import MockPineconeClient, MockTavilyClient
+from config.llm_config import llm_config
+from models.schemas import UploadData, OptimizedRoute
+from storage.storage import TaskStorage, RouteStorage, UploadStorage
 from config.settings import MOCK_LOCATIONS
-from utils.storage import TaskStorage, RouteStorage, UploadStorage
 
-# Initialize external service clients
-pinecone_client = MockPineconeClient()
-tavily_client = MockTavilyClient()
+# Initialize FastAPI app
+app = FastAPI(
+    title="Multi-Agent RAG Supply Chain Application",
+    description="LLM-powered supply chain route optimization with real-time intelligence",
+    version="1.0.0"
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize storage systems
 task_storage = TaskStorage()
 route_storage = RouteStorage()
 upload_storage = UploadStorage()
 
-# Initialize agents
-information_agent = InformationAgent(pinecone_client, tavily_client)
-route_planning_agent = RoutePlanningAgent()
+# Initialize agents with Claude LLM
+try:
+    information_agent = InformationAgent(llm_config.anthropic_api_key)
+    route_planning_agent = RoutePlanningAgent(llm_config.anthropic_api_key)
+    print("✅ Agents initialized successfully with Claude LLM")
+except Exception as e:
+    print(f"❌ Failed to initialize agents: {e}")
+    information_agent = None
+    route_planning_agent = None
 
-# FastAPI app
-app = FastAPI(title="Supply Chain RAG API", version="1.0.0")
+# Request/Response Models
+class AnalysisRequest(BaseModel):
+    query: str
+    region: str
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class TaskResponse(BaseModel):
+    task_id: str
+    status: str
+    progress: Optional[int] = 0
+    current_step: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
 
-# Background task to process uploaded data using LangGraph agents
-async def process_supply_chain_data(task_id: str, upload_data: UploadData):
-    """Background task to process uploaded data through LangGraph agents"""
-    
-    try:
-        # Update task status
-        task_storage.update_task(task_id, {"status": "processing", "current_step": "information_analysis"})
-        
-        print(f"🚀 Starting multi-agent processing for task {task_id}")
-        
-        # Step 1: Information Agent Analysis using LangGraph
-        print("🤖 Running Information Agent...")
-        
-        # Prepare locations data for route planning
-        all_locations = []
-        for location_type, locations in MOCK_LOCATIONS.items():
-            for loc in locations:
-                all_locations.append(loc.dict())
-        
-        # Run Information Agent workflow
-        info_analysis = await information_agent.analyze_supply_chain(
-            task_id=task_id,
-            query=f"supply chain optimization {upload_data.region}",
-            region=upload_data.region,
-            task_storage=task_storage
-        )
-        
-        task_storage.update_task(task_id, {
-            "info_analysis": info_analysis,
-            "current_step": "route_optimization"
-        })
-        
-        print("✅ Information Agent completed")
-        print(f"📊 Found {len(info_analysis['domain_knowledge'])} knowledge entries")
-        print(f"⚠️ Found {len(info_analysis['disruption_data'])} disruptions")
-        print(f"🎯 Risk level: {info_analysis['risk_assessment'].get('overall_risk', 'unknown')}")
-        
-        # Step 2: Route Planning Agent using LangGraph
-        print("🚚 Running Route Planning Agent...")
-        
-        # Run Route Planning Agent workflow
-        route_results = await route_planning_agent.optimize_routes(
-            task_id=task_id,
-            upload_data=upload_data,
-            information_analysis=info_analysis,
-            locations=all_locations,
-            task_storage=task_storage
-        )
-        
-        # Store generated routes
-        route_objects = []
-        for route_data in route_results["optimized_routes"]:
-            route_obj = OptimizedRoute.from_dict(route_data)
-            route_objects.append(route_obj)
-            route_storage.store_route(route_obj.id, route_obj)
-        
-        task_storage.update_task(task_id, {
-            "status": "completed",
-            "routes": [route.dict() for route in route_objects],
-            "final_recommendation": route_results["final_recommendation"],
-            "completed_at": datetime.now().isoformat()
-        })
-        
-        print("✅ Route Planning Agent completed")
-        print(f"🛣️ Generated {len(route_results['optimized_routes'])} optimized routes")
-        print(f"🎯 Recommended {len(route_results['final_recommendation'].get('recommended_routes', []))} top routes")
-        print(f"✨ Multi-agent processing completed for task {task_id}")
-        
-    except Exception as e:
-        print(f"❌ Error in multi-agent processing: {str(e)}")
-        task_storage.update_task(task_id, {
-            "status": "failed",
-            "error": str(e)
-        })
+class RouteApprovalRequest(BaseModel):
+    approved: bool
+    comments: Optional[str] = None
 
 # API Endpoints
+
 @app.get("/api/v1")
 async def root():
-    return {"message": "Supply Chain RAG API", "status": "running"}
+    """Health check endpoint"""
+    agent_status = {
+        "information_agent": information_agent is not None,
+        "route_planning_agent": route_planning_agent is not None,
+        "llm_model": "claude-3-sonnet-20240229"
+    }
+    
+    return {
+        "message": "Multi-Agent RAG Supply Chain Application",
+        "status": "running",
+        "agents": agent_status,
+        "llm_integration": "Claude by Anthropic"
+    }
 
-@app.post("/api/v1/data/upload")
+@app.get("/api/v1/agent-info")
+async def get_agent_info():
+    """Get information about the agents and their LLM configuration"""
+    if not information_agent or not route_planning_agent:
+        raise HTTPException(status_code=500, detail="Agents not properly initialized")
+    
+    return {
+        "information_agent": information_agent.get_workflow_info(),
+        "route_planning_agent": route_planning_agent.get_workflow_info(),
+        "llm_config": {
+            "model": "claude-3-sonnet-20240229",
+            "provider": "Anthropic",
+            "temperature": 0.1,
+            "max_tokens": 4000
+        }
+    }
+
+@app.post("/api/v1/data/upload", response_model=TaskResponse)
 async def upload_data(background_tasks: BackgroundTasks, upload_data: UploadData):
-    """Upload regional supply chain data and trigger agent processing"""
+    """Upload regional supply chain data and trigger agent analysis"""
+    if not information_agent or not route_planning_agent:
+        raise HTTPException(status_code=500, detail="Agents not properly initialized")
     
     task_id = str(uuid.uuid4())
     upload_id = str(uuid.uuid4())
@@ -140,43 +134,113 @@ async def upload_data(background_tasks: BackgroundTasks, upload_data: UploadData
         "id": upload_id,
         "data": upload_data.dict(),
         "uploaded_at": datetime.now().isoformat(),
-        "status": "uploaded"
+        "status": "processing"
     })
     
-    # Initialize task tracking
+    # Create task
     task_storage.create_task(task_id, {
-        "id": task_id,
+        "task_id": task_id,
         "upload_id": upload_id,
-        "status": "queued",
+        "status": "processing",
+        "progress": 10,
+        "current_step": "upload_received",
         "created_at": datetime.now().isoformat(),
-        "current_step": "queued"
+        "upload_data": upload_data.dict()
     })
     
     # Start background processing
-    background_tasks.add_task(process_supply_chain_data, task_id, upload_data)
+    background_tasks.add_task(
+        process_supply_chain_analysis,
+        task_id,
+        upload_data,
+        upload_data.region
+    )
     
-    return {
-        "message": "Data uploaded successfully",
-        "task_id": task_id,
-        "upload_id": upload_id,
-        "status": "processing"
-    }
+    return TaskResponse(
+        task_id=task_id,
+        status="processing",
+        progress=10,
+        current_step="upload_received"
+    )
 
-@app.get("/api/v1/agents/status/{task_id}")
+@app.get("/api/v1/tasks/{task_id}", response_model=TaskResponse)
 async def get_task_status(task_id: str):
-    """Get agent task status and results"""
+    """Get status of a processing task"""
     task = task_storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    
+    return TaskResponse(
+        task_id=task_id,
+        status=task.get("status", "unknown"),
+        progress=task.get("progress", 0),
+        current_step=task.get("current_step"),
+        result=task.get("result")
+    )
+
+@app.get("/api/v1/agents/status/{task_id}", response_model=TaskResponse)
+async def get_agent_status(task_id: str):
+    """Get status of a processing task (alternative endpoint for compatibility)"""
+    return await get_task_status(task_id)
+
+@app.post("/api/v1/agents/information/test")
+async def test_information_agent(request: AnalysisRequest):
+    """Test the Information Agent independently"""
+    if not information_agent:
+        raise HTTPException(status_code=500, detail="Information agent not initialized")
+    
+    try:
+        result = await information_agent.test_workflow(request.query, request.region)
+        return {
+            "status": "success",
+            "agent_type": "Information Agent",
+            "test_result": result,
+            "llm_used": "claude-3-sonnet-20240229"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent test failed: {str(e)}")
+
+@app.post("/api/v1/agents/routing/test")
+async def test_route_planning_agent(upload_data: UploadData):
+    """Test the Route Planning Agent independently"""
+    if not route_planning_agent:
+        raise HTTPException(status_code=500, detail="Route planning agent not initialized")
+    
+    # Create mock information analysis for testing
+    mock_info_analysis = {
+        "risk_assessment": {"overall_risk": "medium"},
+        "disruption_data": [
+            {"title": "Test disruption", "impact_level": "medium", "transport_modes": ["sea"]}
+        ]
+    }
+    
+    try:
+        # Get all locations for testing
+        all_locations = []
+        for location_type in MOCK_LOCATIONS.values():
+            all_locations.extend([loc.dict() for loc in location_type])
+        
+        result = await route_planning_agent.test_workflow(
+            upload_data, 
+            mock_info_analysis, 
+            all_locations
+        )
+        return {
+            "status": "success",
+            "agent_type": "Route Planning Agent",
+            "test_result": result,
+            "llm_used": "claude-3-sonnet-20240229"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent test failed: {str(e)}")
 
 @app.get("/api/v1/routes")
-async def get_routes():
+async def get_all_routes():
     """Get all generated routes"""
     routes = route_storage.get_all_routes()
     return {
         "routes": [route.dict() for route in routes],
-        "total": len(routes)
+        "total_count": len(routes)
     }
 
 @app.get("/api/v1/routes/{route_id}")
@@ -185,121 +249,166 @@ async def get_route(route_id: str):
     route = route_storage.get_route(route_id)
     if not route:
         raise HTTPException(status_code=404, detail="Route not found")
+    
     return route.dict()
 
 @app.post("/api/v1/routes/{route_id}/approve")
-async def approve_route(route_id: str):
-    """Approve a route (Human-in-the-Loop)"""
+async def approve_route(route_id: str, approval: RouteApprovalRequest):
+    """Approve or reject a route (Human-in-the-Loop)"""
     route = route_storage.get_route(route_id)
     if not route:
         raise HTTPException(status_code=404, detail="Route not found")
     
-    # Update route status
-    route_storage.approve_route(route_id)
+    if approval.approved:
+        route_storage.approve_route(route_id)
+        status = "approved"
+    else:
+        route.status = "rejected"
+        status = "rejected"
     
     return {
-        "message": "Route approved successfully",
         "route_id": route_id,
-        "status": "approved"
+        "status": status,
+        "comments": approval.comments,
+        "approved_at": datetime.now().isoformat()
+    }
+
+@app.get("/api/v1/routes/{route_id}/visualization")
+async def get_route_visualization(route_id: str):
+    """Get route visualization data for map display"""
+    route = route_storage.get_route(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    
+    # Extract coordinates for map visualization
+    waypoints = []
+    for point in route.points:
+        waypoints.append({
+            "lat": point.location.lat,
+            "lng": point.location.lng,
+            "name": point.location.name,
+            "type": point.location.type,
+            "order": point.order
+        })
+    
+    return {
+        "route_id": route_id,
+        "waypoints": waypoints,
+        "transport_mode": route.transport_mode,
+        "total_distance": route.total_distance,
+        "estimated_duration": route.estimated_duration
     }
 
 @app.get("/api/v1/locations")
 async def get_locations():
-    """Get all available locations for mapping"""
+    """Get all available locations for route planning"""
     return MOCK_LOCATIONS
 
-@app.get("/api/v1/knowledge/search")
-async def search_knowledge(query: str, limit: int = 10):
-    """Search Dell knowledge base"""
-    results = pinecone_client.query(query, top_k=limit)
+@app.get("/api/v1/uploads")
+async def get_uploads():
+    """Get all upload history"""
+    uploads = upload_storage.get_all_uploads()
     return {
-        "query": query,
-        "results": results,
-        "total": len(results)
+        "uploads": uploads,
+        "total_count": len(uploads)
     }
 
-@app.get("/api/v1/agents/workflows/info")
-async def get_info_agent_workflow():
-    """Get Information Agent workflow definition for debugging"""
+# Background task for processing supply chain analysis
+async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, region: str):
+    """Background task that orchestrates both agents with LLM reasoning"""
     try:
-        return information_agent.get_workflow_info()
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/api/v1/agents/workflows/route")
-async def get_route_agent_workflow():
-    """Get Route Planning Agent workflow definition for debugging"""
-    try:
-        return route_planning_agent.get_workflow_info()
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/v1/agents/test/info")
-async def test_information_agent(query: str = "supply chain APAC", region: str = "APAC"):
-    """Test Information Agent workflow independently"""
-    try:
-        result = await information_agent.test_workflow(query, region)
-        return {
-            "test_type": "Information Agent",
-            "status": "completed",
-            "result": result
-        }
-    except Exception as e:
-        return {
-            "test_type": "Information Agent", 
-            "status": "failed",
-            "error": str(e)
-        }
-
-@app.post("/api/v1/agents/test/route")
-async def test_route_planning_agent():
-    """Test Route Planning Agent workflow independently"""
-    try:
-        # Create test data
-        test_upload = UploadData(
-            region="APAC",
-            forecast_date="2025-Q2",
-            device_forecasts=[
-                DeviceForecast(
-                    model="Dell Latitude 7440",
-                    quantity=1000,
-                    destination="Singapore",
-                    priority="high",
-                    delivery_window="2025-07-01 to 2025-07-31"
-                )
-            ],
-            constraints={"max_cost_per_unit": 50}
+        # Update task status
+        task_storage.update_task(task_id, {
+            "status": "processing",
+            "progress": 20,
+            "current_step": "starting_information_agent"
+        })
+        
+        # Step 1: Run Information Agent with Claude LLM
+        print(f"🔍 Starting Information Agent analysis for {region}")
+        # Extract device models safely
+        device_models = [forecast.model for forecast in upload_data.device_forecasts]
+        query = f"supply chain analysis {region} {' '.join(device_models)}"
+        
+        info_result = await information_agent.analyze_supply_chain(
+            task_id, query, region, task_storage
         )
         
-        # Prepare locations
+        task_storage.update_task(task_id, {
+            "progress": 60,
+            "current_step": "information_agent_complete",
+            "info_analysis": info_result
+        })
+        
+        # Step 2: Run Route Planning Agent with Claude LLM
+        print(f"🚚 Starting Route Planning Agent optimization")
+        task_storage.update_task(task_id, {
+            "progress": 65,
+            "current_step": "starting_route_agent"
+        })
+        
+        # Get all locations
         all_locations = []
-        for location_type, locations in MOCK_LOCATIONS.items():
-            for loc in locations:
-                all_locations.append(loc.dict())
+        for location_type in MOCK_LOCATIONS.values():
+            all_locations.extend([loc.dict() for loc in location_type])
         
-        # Mock info analysis
-        mock_info_analysis = {
-            "domain_knowledge": [{"content": "Test knowledge", "relevance_score": 0.9}],
-            "disruption_data": [{"title": "Test disruption", "summary": "Test disruption content"}],
-            "risk_assessment": {"overall_risk": "medium"}
-        }
-        
-        result = await route_planning_agent.test_workflow(
-            test_upload, mock_info_analysis, all_locations
+        route_result = await route_planning_agent.optimize_routes(
+            task_id, upload_data, info_result, all_locations, task_storage
         )
+
+        print(f"✅ Route Planning Agent completed with {len(route_result.get('optimized_routes', []))} routes")
+        print(f"Route Result: {json.dumps(route_result, indent=2)}")
         
-        return {
-            "test_type": "Route Planning Agent",
-            "status": "completed", 
-            "result": result
+        # Step 3: Store optimized routes
+        print(f"💾 Storing optimized routes in storage")
+        for route_data in route_result.get("optimized_routes", []):
+            try:
+                optimized_route = OptimizedRoute.from_dict(route_data)
+                route_storage.store_route(optimized_route.id, optimized_route)
+            except Exception as e:
+                print(f"Warning: Could not store route {route_data.get('id', 'unknown')}: {e}")
+        
+        # Step 4: Complete task
+        final_result = {
+            "information_analysis": info_result,
+            "route_optimization": route_result,
+            "routes_generated": len(route_result.get("optimized_routes", [])),
+            "recommended_routes": len(route_result.get("final_recommendation", {}).get("recommended_routes", [])),
+            "llm_reasoning": {
+                "information_agent": info_result.get("agent_reasoning", []),
+                "route_agent": route_result.get("llm_reasoning", [])
+            }
         }
+        
+        task_storage.update_task(task_id, {
+            "status": "completed",
+            "progress": 100,
+            "current_step": "analysis_complete",
+            "result": final_result,
+            "completed_at": datetime.now().isoformat()
+        })
+        
+        print(f"✅ Task {task_id} completed successfully with Claude LLM reasoning")
+        
     except Exception as e:
-        return {
-            "test_type": "Route Planning Agent",
+        print(f"❌ Task {task_id} failed: {str(e)}")
+        task_storage.update_task(task_id, {
             "status": "failed",
-            "error": str(e)
-        }
+            "progress": 0,
+            "current_step": "error",
+            "error": str(e),
+            "failed_at": datetime.now().isoformat()
+        })
 
 if __name__ == "__main__":
     import uvicorn
+    print("🚀 Starting Multi-Agent RAG Supply Chain Application with Claude LLM")
+    print("📋 Available endpoints:")
+    print("   - POST /api/v1/data/upload - Upload supply chain data")
+    print("   - GET /api/v1/tasks/{task_id} - Check task status")
+    print("   - POST /api/v1/agents/information/test - Test Information Agent")
+    print("   - POST /api/v1/agents/routing/test - Test Route Planning Agent")
+    print("   - GET /api/v1/routes - Get all routes")
+    print("   - GET /api/v1/agent-info - Get agent and LLM information")
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)
