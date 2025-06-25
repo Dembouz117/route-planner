@@ -92,9 +92,15 @@ function App() {
       {/* App Bar */}
       <AppBar position="static" elevation={0}>
         <Toolbar>
-          <LocalShipping sx={{ mr: 2 }} />
+          
+          <Box
+            component="img"
+            src="https://boss.dell.com/images/logo.png"
+            alt="Logo"
+            sx={{ height: 48, width: 48, mr: 2 }}
+          />
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Multi-Agent Supply Chain RAG System
+            D.E.L.L. – Distributed Experts for Logistics Layer
           </Typography>
           
           {/* Connection Status */}
