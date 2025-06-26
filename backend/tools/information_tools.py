@@ -75,6 +75,15 @@ def search_supply_chain_disruptions(query: str, region: str = None) -> List[Dict
     # Mock Tavily/web search simulation
     mock_disruptions = [
         {
+            "title": "Ben Gurion Airport Tel Aviv closed due to ongoing Middle East conflict",
+            "summary": "Israel's main international airport Ben Gurion suspended operations due to security concerns, Ramon Airport in south still operational",
+            "impact_level": "high",
+            "region_affected": "Middle East",
+            "transport_modes": ["air"],
+            "source": "aviation_authority",
+            "date": "2024-12-20"
+        },
+        {
             "title": "Red Sea shipping disruptions continue amid regional conflicts",
             "summary": "Ongoing conflicts affecting major shipping routes through Red Sea, causing 20% increase in shipping times",
             "impact_level": "high",

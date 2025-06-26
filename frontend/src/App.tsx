@@ -58,7 +58,7 @@ function App() {
         setAppError('Failed to fetch routes. Check console for details.')
       }
     }
-    if (routes.length === 0) {
+    if (routes && routes.length === 0) {
       fetchRoutes()
     }
   }, [])
@@ -167,7 +167,7 @@ function App() {
               
               <Typography variant="body2">
                 {currentTask.status === 'processing' && `Multi-Agent Processing: ${currentTask.current_step.replace(/_/g, ' ')}`}
-                {currentTask.status === 'completed' && `✅ Processing Complete! Generated ${routes.length} optimized routes.`}
+                {currentTask.status === 'completed' && routes && `✅ Processing Complete! Generated ${routes.length} optimized routes.`}
                 {currentTask.status === 'failed' && `❌ Processing Failed: ${currentTask.error}`}
               </Typography>
             </Box>

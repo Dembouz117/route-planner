@@ -11,7 +11,9 @@ import {
   FormControl,
   InputLabel,
   Alert,
-  CircularProgress
+  CircularProgress,
+  FormControlLabel,
+  Switch,
 } from '@mui/material'
 import { CloudUpload, SmartToy } from '@mui/icons-material'
 import { useSupplyChainStore, DeviceForecast, UploadData } from '../store/useSupplyChainStore'
@@ -29,6 +31,7 @@ export const DataUpload: React.FC<DataUploadProps> = ({ onUploadComplete }) => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [parsedData, setParsedData] = useState<DeviceForecast[] | null>(null)
+  const [scenarioEnabled, setScenarioEnabled] = useState<boolean>(false)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
@@ -81,7 +84,7 @@ export const DataUpload: React.FC<DataUploadProps> = ({ onUploadComplete }) => {
     maxFiles: 1
   })
 
-  const handleProcess = async () => {
+  const handleProcess = async (scenarioEnabled: boolean) => {
     if (!parsedData?.length) {
       setError('Please upload a valid file first')
       return
@@ -102,7 +105,7 @@ export const DataUpload: React.FC<DataUploadProps> = ({ onUploadComplete }) => {
       }
 
       setUploadData(uploadData)
-      const response = await SupplyChainAPI.uploadData(uploadData)
+      const response = await SupplyChainAPI.uploadData(uploadData, scenarioEnabled)
       
       if (response.task_id) {
         onUploadComplete(response.task_id)
@@ -217,11 +220,37 @@ export const DataUpload: React.FC<DataUploadProps> = ({ onUploadComplete }) => {
         </Alert>
       )}
 
+      <Box sx={{ mb: 2 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={scenarioEnabled}
+              onChange={(e) => setScenarioEnabled(e.target.checked)}
+              color="warning"
+            />
+          }
+          label={
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {/* <WarningIcon color={scenarioEnabled ? "warning" : "disabled"} fontSize="small" /> */}
+              <Typography variant="body2">
+                Enable Demo Scenario
+              </Typography>
+            </Box>
+          }
+          sx={{ 
+            '& .MuiFormControlLabel-label': { 
+              fontSize: '0.875rem' 
+            }
+          }}
+        />
+    </Box>
+
+
       {/* Process Button */}
       <Button
         variant="contained"
         fullWidth
-        onClick={handleProcess}
+        onClick={() => handleProcess(scenarioEnabled)}
         disabled={!parsedData?.length || isUploading}
         startIcon={isUploading ? <CircularProgress size={20} /> : <SmartToy />}
         sx={{ py: 1.5 }}

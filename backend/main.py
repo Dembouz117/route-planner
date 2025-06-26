@@ -121,7 +121,7 @@ async def get_agent_info():
     }
 
 @app.post("/api/v1/data/upload", response_model=TaskResponse)
-async def upload_data(background_tasks: BackgroundTasks, upload_data: UploadData):
+async def upload_data(background_tasks: BackgroundTasks, upload_data: UploadData, enable_scenario: bool = False):
     """Upload regional supply chain data and trigger agent analysis"""
     if not information_agent or not route_planning_agent:
         raise HTTPException(status_code=500, detail="Agents not properly initialized")
@@ -134,7 +134,8 @@ async def upload_data(background_tasks: BackgroundTasks, upload_data: UploadData
         "id": upload_id,
         "data": upload_data.dict(),
         "uploaded_at": datetime.now().isoformat(),
-        "status": "processing"
+        "status": "processing",
+        "scenario_enabled": enable_scenario
     })
     
     # Create task
@@ -145,7 +146,8 @@ async def upload_data(background_tasks: BackgroundTasks, upload_data: UploadData
         "progress": 10,
         "current_step": "upload_received",
         "created_at": datetime.now().isoformat(),
-        "upload_data": upload_data.dict()
+        "upload_data": upload_data.dict(),
+        "scenario_enabled": enable_scenario
     })
     
     # Start background processing
@@ -153,7 +155,8 @@ async def upload_data(background_tasks: BackgroundTasks, upload_data: UploadData
         process_supply_chain_analysis,
         task_id,
         upload_data,
-        upload_data.region
+        upload_data.region,
+        enable_scenario
     )
     
     return TaskResponse(
@@ -314,31 +317,44 @@ async def get_uploads():
     }
 
 # Background task for processing supply chain analysis
-async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, region: str):
+async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, region: str, enable_scenario: bool = False):
     """Background task that orchestrates both agents with LLM reasoning"""
     try:
         # Update task status
         task_storage.update_task(task_id, {
             "status": "processing",
             "progress": 20,
-            "current_step": "starting_information_agent"
+            "current_step": "starting_analysis"
         })
         
-        # Step 1: Run Information Agent with Claude LLM
-        print(f"🔍 Starting Information Agent analysis for {region}")
-        # Extract device models safely
-        device_models = [forecast.model for forecast in upload_data.device_forecasts]
-        query = f"supply chain analysis {region} {' '.join(device_models)}"
-        
-        info_result = await information_agent.analyze_supply_chain(
-            task_id, query, region, task_storage
-        )
-        
-        task_storage.update_task(task_id, {
-            "progress": 60,
-            "current_step": "information_agent_complete",
-            "info_analysis": info_result
-        })
+        # Step 1: Run Information Agent only if scenario is enabled
+        if enable_scenario:
+            print(f"🔍 Starting Information Agent analysis for {region} (scenario enabled)")
+            device_models = [forecast.model for forecast in upload_data.device_forecasts]
+            query = f"supply chain analysis {region} {' '.join(device_models)}"
+            
+            info_result = await information_agent.analyze_supply_chain(
+                task_id, query, region, task_storage
+            )
+            
+            task_storage.update_task(task_id, {
+                "progress": 60,
+                "current_step": "information_agent_complete",
+                "info_analysis": info_result
+            })
+        else:
+            print(f"📋 Skipping Information Agent - scenario disabled")
+            # Create empty analysis for route planning
+            info_result = {
+                "domain_knowledge": [],
+                "disruption_data": [],
+                "risk_assessment": {"overall_risk": "low", "risk_factors": []}
+            }
+            
+            task_storage.update_task(task_id, {
+                "progress": 60,
+                "current_step": "information_agent_skipped"
+            })
         
         # Step 2: Run Route Planning Agent with Claude LLM
         print(f"🚚 Starting Route Planning Agent optimization")
@@ -355,12 +371,8 @@ async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, r
         route_result = await route_planning_agent.optimize_routes(
             task_id, upload_data, info_result, all_locations, task_storage
         )
-
-        print(f"✅ Route Planning Agent completed with {len(route_result.get('optimized_routes', []))} routes")
-        print(f"Route Result: {json.dumps(route_result, indent=2)}")
         
         # Step 3: Store optimized routes
-        print(f"💾 Storing optimized routes in storage")
         for route_data in route_result.get("optimized_routes", []):
             try:
                 optimized_route = OptimizedRoute.from_dict(route_data)

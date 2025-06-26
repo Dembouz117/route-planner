@@ -14,11 +14,10 @@ export class SupplyChainAPI {
   }
 
   // Upload data and start processing
-  static async uploadData(data: UploadData) {
-    const response = await api.post('/data/upload', data)
-    return response.data
-  }
-
+static async uploadData(data: UploadData, scenarioEnabled: boolean = false) {
+  const response = await api.post(`/data/upload?enable_scenario=${scenarioEnabled}`, data)
+  return response.data
+}
   // Get task status
   static async getTaskStatus(taskId: string): Promise<TaskStatus> {
     const response = await api.get(`/agents/status/${taskId}`)
