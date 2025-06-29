@@ -1,27 +1,6 @@
 # Load environment variables first, before any other imports
-from dotenv import load_dotenv
-import os
-
-# Load .env file from multiple possible locations
-env_loaded = False
-env_paths = [".env", "backend/.env", "../.env"]
-
-for env_path in env_paths:
-    if os.path.exists(env_path):
-        load_dotenv(env_path, override=True)
-        print(f"✅ Loaded .env from: {env_path}")
-        env_loaded = True
-        break
-
-if not env_loaded:
-    print("⚠️ No .env file found, using system environment variables")
-
-# Verify API key is loaded
-anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-print(f"Anthropic API Key loaded: {anthropic_key is not None}")
-if anthropic_key:
-    print(f"API Key preview: {anthropic_key[:10]}...")
-
+from utils.env_setup import load_env
+load_env()
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,6 +8,8 @@ from typing import Dict, Any, List, Optional
 import uuid
 import json
 from datetime import datetime
+
+from utils.routes import fix_route_data_for_storage
 
 # Import the corrected agents with LLM integration
 from agents.information_agent import InformationAgent
@@ -38,7 +19,7 @@ from models.schemas import UploadData, OptimizedRoute
 from storage.storage import TaskStorage, RouteStorage, UploadStorage
 from config.settings import MOCK_LOCATIONS
 
-# Initialize FastAPI app
+
 app = FastAPI(
     title="Multi-Agent RAG Supply Chain Application",
     description="LLM-powered supply chain route optimization with real-time intelligence",
@@ -375,11 +356,31 @@ async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, r
         # Step 3: Store optimized routes
         for route_data in route_result.get("optimized_routes", []):
             try:
-                optimized_route = OptimizedRoute.from_dict(route_data)
+                # Fix route data structure
+                fixed_route_data = fix_route_data_for_storage(route_data)
+                
+                # Create OptimizedRoute object
+                optimized_route = OptimizedRoute.from_dict(fixed_route_data)
                 route_storage.store_route(optimized_route.id, optimized_route)
+                print(f"✅ Successfully stored route {optimized_route.id}")
             except Exception as e:
-                print(f"Warning: Could not store route {route_data.get('id', 'unknown')}: {e}")
-        
+                print(f"⚠️ Could not store route {route_data.get('id', 'unknown')}: {e}")
+                # Create a minimal route as fallback
+                try:
+                    minimal_route_data = {
+                        "id": route_data.get("id", str(uuid.uuid4())),
+                        "points": [],
+                        "total_cost": route_data.get("total_cost", 0),
+                        "total_distance": route_data.get("total_distance", 0),
+                        "risk_score": route_data.get("risk_score", 0),
+                        "transport_mode": route_data.get("transport_mode", "air"),
+                        "estimated_duration": route_data.get("estimated_duration", "3 days")
+                    }
+                    optimized_route = OptimizedRoute.from_dict(minimal_route_data)
+                    route_storage.store_route(optimized_route.id, optimized_route)
+                    print(f"✅ Stored minimal route {optimized_route.id} as fallback")
+                except Exception as e2:
+                    print(f"❌ Failed to store even minimal route: {e2}")
         # Step 4: Complete task
         final_result = {
             "information_analysis": info_result,
@@ -411,6 +412,7 @@ async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, r
             "error": str(e),
             "failed_at": datetime.now().isoformat()
         })
+        
 
 if __name__ == "__main__":
     import uvicorn
@@ -422,5 +424,5 @@ if __name__ == "__main__":
     print("   - POST /api/v1/agents/routing/test - Test Route Planning Agent")
     print("   - GET /api/v1/routes - Get all routes")
     print("   - GET /api/v1/agent-info - Get agent and LLM information")
-    
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
