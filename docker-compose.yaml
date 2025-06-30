@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: supply_chain_backend
+    ports:
+      - "8080:8000"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      PINECONE_API_KEY: ${PINECONE_API_KEY:-your-pinecone-api-key}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-your-tavily-api-key}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-your-openai-api-key}
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+    networks:
+      - supply_chain_network
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: supply_chain_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000/api/v1
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - supply_chain_network
+
+networks:
+  supply_chain_network:
+    driver: bridge

@@ -69,6 +69,7 @@ function App() {
   }
 
   const handleProcessingComplete = (generatedRoutes: any[]) => {
+    console.log('Processing complete. Generated routes:', generatedRoutes)
     setRoutes(generatedRoutes)
   }
 

@@ -18,7 +18,6 @@ from utils.routes import fix_route_data_for_storage
 
 class RoutePlanningAgent:
     def __init__(self, anthropic_api_key: str):
-        # Initialize Claude LLM
         self.llm = ChatAnthropic(
             api_key=anthropic_api_key,
             model="claude-3-5-sonnet-20241022",
@@ -26,7 +25,6 @@ class RoutePlanningAgent:
             max_tokens=4000
         )
         
-        # Define tools for the agent
         self.tools = [
             calculate_route_distance,
             estimate_shipping_costs,
@@ -34,10 +32,8 @@ class RoutePlanningAgent:
             generate_route_waypoints
         ]
         
-        # Create ReAct agent with Claude and tools
         self.react_agent = create_react_agent(self.llm, self.tools)
         
-        # Create the main workflow
         self.workflow = self._create_workflow()
     
     def _create_workflow(self):
@@ -81,7 +77,6 @@ class RoutePlanningAgent:
         info_analysis = state["information_analysis"]
         locations = state["locations"]
         
-        # Determine what prompt to give Claude based on current state
         if not state.get("messages") or len(state["messages"]) == 0:
             # Initial route planning prompt
             route_prompt = f"""
@@ -139,13 +134,11 @@ class RoutePlanningAgent:
             If you have sufficient routes, provide a summary of your recommendations.
             """
         
-        # Create message list for the agent
         if not state.get("messages"):
             messages = [HumanMessage(content=route_prompt)]
         else:
             messages = state["messages"] + [HumanMessage(content=route_prompt)]
         
-        # Invoke the ReAct agent - Claude will decide which tools to use
         agent_config = {"configurable": {"thread_id": f"route_agent_{state.get('current_step', uuid.uuid4())}"}}
         result = self.react_agent.invoke(
             {"messages": messages},
@@ -175,7 +168,6 @@ class RoutePlanningAgent:
         waypoint_results = []
         
         for i, message in enumerate(state["messages"]):
-            # Handle tool calls in Claude's content format
             if hasattr(message, 'content') and isinstance(message.content, list):
                 for content_item in message.content:
                     if isinstance(content_item, dict) and content_item.get('type') == 'tool_use':
@@ -201,8 +193,6 @@ class RoutePlanningAgent:
                                     state["final_recommendation"] = tool_result.get("optimization_summary", {})
                                 else:
                                     print(f"⚠️ Optimization tool error: {tool_result.get('error')}")
-        
-        # Build candidate routes from the collected tool results
         candidate_routes = self._build_routes_from_tool_collections(
             distance_results, cost_results, waypoint_results, upload_data, info_analysis
         )
@@ -250,12 +240,11 @@ class RoutePlanningAgent:
         if not forecasts:
             return candidate_routes
         
-        # Build routes by matching tool results to forecasts
         for i, forecast in enumerate(forecasts):
             if isinstance(forecast, dict):
                 forecast_data = forecast
             else:
-                forecast_data = forecast  # Assume it's already a dict from .dict() call
+                forecast_data = forecast
             
             # Try to match distance and cost results
             if i < len(distance_results) and i < len(cost_results):
@@ -285,7 +274,6 @@ class RoutePlanningAgent:
                             "waypoint_type": point.get("waypoint_type", "waypoint")
                         })
                 
-                # Create route object
                 route = {
                     "id": str(uuid.uuid4()),
                     "forecast_id": forecast_data.get("model", f"forecast_{i}"),

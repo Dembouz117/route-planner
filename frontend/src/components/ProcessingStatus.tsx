@@ -42,9 +42,10 @@ export const ProcessingStatus: React.FC<ProcessingStatusProps> = ({ taskId, onCo
       try {
         const status = await SupplyChainAPI.getTaskStatus(taskId)
         setCurrentTask(status)
-        
+        console.log('Polling status:', status)
         if (status.status === 'completed' && status.result) {
-          const finalRoutes = status.result.route_optimization.optmized_routes
+          console.log('Task completed:', status)
+          const finalRoutes = status.result.route_optimization.optimized_routes
           onComplete(finalRoutes)
         }
       } catch (error) {

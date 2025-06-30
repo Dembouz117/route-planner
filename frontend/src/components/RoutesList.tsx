@@ -1,4 +1,3 @@
-// src/components/RoutesList.tsx
 import React from 'react'
 import {
   Paper,
@@ -65,7 +64,7 @@ export const RoutesList: React.FC<RoutesListProps> = ({ routes, onRouteSelect })
     }
   }
 
-  if (!routes.length) {
+  if (routes && !routes.length) {
     return (
       <Paper elevation={3} sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -83,11 +82,11 @@ export const RoutesList: React.FC<RoutesListProps> = ({ routes, onRouteSelect })
     <Paper elevation={3} sx={{ p: 3 }}>
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Route />
-        Generated Routes ({routes.length})
+        Generated Routes ({routes?.length || 0})
       </Typography>
 
       <Box sx={{ maxHeight: 600, overflowY: 'auto' }}>
-        {routes.map((route, index) => (
+        {routes?.map((route, index) => (
           <Card
             key={route.id}
             onClick={() => handleRouteSelect(route)}

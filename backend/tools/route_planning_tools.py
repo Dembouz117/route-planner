@@ -61,41 +61,37 @@ def estimate_shipping_costs(distance_km: float, transport_mode: str, quantity: i
     Returns:
         Detailed cost breakdown and estimates
     """
-    # Base cost rates per km per unit (in USD)
+    # some basic scaffold
     base_costs = {
-        "air": 2.5,      # Fastest but most expensive
-        "sea": 0.3,      # Cheapest for long distances
-        "land": 1.2,     # Medium cost, good for regional
-        "rail": 0.8,     # Efficient for continental routes
-        "multimodal": 1.0 # Combined transport modes
+        "air": 2.5,
+        "sea": 0.3,
+        "land": 1.2,
+        "rail": 0.8,   
+        "multimodal": 1.0
     }
     
     cost_per_km = base_costs.get(transport_mode.lower(), 1.0)
     
-    # Calculate base cost
     base_cost = distance_km * cost_per_km * quantity * 0.01
     
-    # Apply distance-based discounts for bulk shipments
     if distance_km > 5000 and quantity > 1000:
-        volume_discount = 0.15  # 15% discount
+        volume_discount = 0.15
     elif distance_km > 2000 and quantity > 500:
-        volume_discount = 0.10  # 10% discount
+        volume_discount = 0.10
     elif quantity > 100:
-        volume_discount = 0.05  # 5% discount
+        volume_discount = 0.05
     else:
         volume_discount = 0.0
     
-    # Calculate final cost with risk adjustment
     discounted_cost = base_cost * (1 - volume_discount)
     final_cost = discounted_cost * risk_multiplier
     
-    # Add fixed costs based on transport mode
     fixed_costs = {
-        "air": 500,   # Airport handling fees
-        "sea": 800,   # Port fees and documentation
-        "land": 200,  # Border crossing and documentation
-        "rail": 300,  # Terminal fees
-        "multimodal": 600  # Multiple handling fees
+        "air": 500,
+        "sea": 800,
+        "land": 200,
+        "rail": 300,
+        "multimodal": 600
     }
     
     handling_fee = fixed_costs.get(transport_mode.lower(), 400)
@@ -137,12 +133,11 @@ def optimize_route_selection(candidate_routes_json: str) -> Dict[str, Any]:
     if not isinstance(candidate_routes, list) or not candidate_routes:
         return {"error": "No candidate routes provided"}
     
-    # Define optimization weights
     weights = {
-        "cost": 0.35,      # 35% weight on cost
-        "risk": 0.25,      # 25% weight on risk
-        "time": 0.20,      # 20% weight on delivery time
-        "reliability": 0.20 # 20% weight on reliability
+        "cost": 0.35,
+        "risk": 0.25,
+        "time": 0.20,
+        "reliability": 0.20
     }
     
     # Calculate scores for each route
@@ -151,26 +146,21 @@ def optimize_route_selection(candidate_routes_json: str) -> Dict[str, Any]:
     for route in candidate_routes:
         if not isinstance(route, dict):
             continue
-            
-        # Extract metrics with defaults
+
         cost = route.get("total_cost", 1000)
         risk_score = route.get("risk_score", 0.5)
         distance = route.get("total_distance", 1000)
         transport_mode = route.get("transport_mode", "land")
         
-        # Normalize cost score (lower cost = better score)
         max_cost = max([r.get("total_cost", 1000) for r in candidate_routes])
         min_cost = min([r.get("total_cost", 1000) for r in candidate_routes])
         cost_score = 1 - ((cost - min_cost) / (max_cost - min_cost)) if max_cost != min_cost else 1.0
         
-        # Risk score (lower risk = better score)
         risk_score_normalized = 1 - risk_score
         
-        # Time score based on transport mode and distance
         time_factors = {"air": 0.9, "sea": 0.3, "land": 0.6, "rail": 0.7, "multimodal": 0.5}
         time_score = time_factors.get(transport_mode, 0.5)
         
-        # Reliability score based on transport mode
         reliability_factors = {"air": 0.8, "sea": 0.6, "land": 0.7, "rail": 0.9, "multimodal": 0.6}
         reliability_score = reliability_factors.get(transport_mode, 0.6)
         
@@ -190,20 +180,21 @@ def optimize_route_selection(candidate_routes_json: str) -> Dict[str, Any]:
             "time_score": round(time_score, 3),
             "reliability_score": round(reliability_score, 3),
             "composite_score": round(composite_score, 3),
-            "optimization_rank": 0  # Will be set after sorting
+            "optimization_rank": 0
         })
         
         scored_routes.append(route_with_scores)
     
-    # Sort by composite score (higher is better)
+    # add the args later for Claude to decide what score is best based on the news, should let him decide the base weightage also 
+    # based on sharepoint docs, see what the team needs
     optimized_routes = sorted(scored_routes, key=lambda x: x["composite_score"], reverse=True)
     
-    # Add ranking and recommendations
+    # ranking and recommendations
     for i, route in enumerate(optimized_routes):
         route["optimization_rank"] = i + 1
         route["recommended"] = i < 3  # Top 3 routes recommended
         
-        # Add specific recommendations
+        # next time, fetch from knowledge base the reasons
         if i == 0:
             route["recommendation_reason"] = "Best overall balance of cost, risk, and reliability"
         elif route["cost_score"] > 0.8:
@@ -274,15 +265,17 @@ def generate_route_waypoints(origin_location: str, destination_location: str, tr
         "dest_lng": dest_lng
     })
     distance = distance_calc["distance_km"]
+
+    INTERMEDIATE_STEPS_THRESHOLD = 2000  # km
     
-    if distance > 2000:  # Long haul routes need intermediate stops
+    if distance > INTERMEDIATE_STEPS_THRESHOLD:
         if transport_mode == "sea":
             # Add major port hubs
             intermediate_ports = [
                 {"id": "HUB_PORT", "name": "Dubai Port Hub", "lat": 25.2769, "lng": 55.3264, "type": "port"},
                 {"id": "SUEZ", "name": "Suez Canal Transit", "lat": 30.0444, "lng": 31.2357, "type": "port"}
             ]
-            for i, port in enumerate(intermediate_ports[:1]):  # Add one intermediate port
+            for i, port in enumerate(intermediate_ports[:1]):
                 waypoints.append({
                     "location": port,
                     "order": i + 2,
