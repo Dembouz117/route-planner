@@ -9,8 +9,6 @@ import uuid
 import json
 from datetime import datetime
 
-from utils.routes import fix_route_data_for_storage
-
 # Import the corrected agents with LLM integration
 from agents.information_agent import InformationAgent
 from agents.route_planning_agent import RoutePlanningAgent
@@ -353,19 +351,14 @@ async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, r
             task_id, upload_data, info_result, all_locations, task_storage
         )
         
-        # Step 3: Store optimized routes
+        # Store optimized routes
         for route_data in route_result.get("optimized_routes", []):
             try:
-                # Fix route data structure
-                fixed_route_data = fix_route_data_for_storage(route_data)
-                
-                # Create OptimizedRoute object
-                optimized_route = OptimizedRoute.from_dict(fixed_route_data)
+                optimized_route = OptimizedRoute.from_dict(route_data)
                 route_storage.store_route(optimized_route.id, optimized_route)
                 print(f"✅ Successfully stored route {optimized_route.id}")
             except Exception as e:
                 print(f"⚠️ Could not store route {route_data.get('id', 'unknown')}: {e}")
-                # Create a minimal route as fallback
                 try:
                     minimal_route_data = {
                         "id": route_data.get("id", str(uuid.uuid4())),
@@ -381,7 +374,7 @@ async def process_supply_chain_analysis(task_id: str, upload_data: UploadData, r
                     print(f"✅ Stored minimal route {optimized_route.id} as fallback")
                 except Exception as e2:
                     print(f"❌ Failed to store even minimal route: {e2}")
-        # Step 4: Complete task
+        # Complete task
         final_result = {
             "information_analysis": info_result,
             "route_optimization": route_result,

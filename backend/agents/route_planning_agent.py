@@ -7,13 +7,14 @@ from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_anthropic import ChatAnthropic
 from datetime import datetime
-from models.schemas import RoutePlanningState, OptimizedRoute, RoutePoint, LocationPoint
+from models.schemas import RoutePlanningState
 from tools.route_planning_tools import (
     calculate_route_distance,
     estimate_shipping_costs,
     optimize_route_selection,
     generate_route_waypoints
 )
+from utils.routes import fix_route_data_for_storage
 
 class RoutePlanningAgent:
     def __init__(self, anthropic_api_key: str):
@@ -534,7 +535,7 @@ class RoutePlanningAgent:
         
         # If still no routes, use candidates
         if not optimized_routes and candidate_routes:
-            optimized_routes = candidate_routes
+            optimized_routes = fix_route_data_for_storage(candidate_routes)
             state["optimized_routes"] = optimized_routes
         
         # Create final recommendation
@@ -593,7 +594,6 @@ class RoutePlanningAgent:
                         "progress": progress
                     })
         
-        # Extract final results
         final_state = final_result.get("finalize_routes", final_result)
         if not final_state:
             final_state = list(final_result.values())[-1] if final_result else {}
