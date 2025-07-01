@@ -2,7 +2,7 @@ import axios from 'axios'
 import { UploadData, LocationPoint, OptimizedRoute, TaskStatus } from '../store/useSupplyChainStore'
 
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: import.meta.env.VITE_API_URL || "/api/v1",
   timeout: 30000
 })
 
@@ -26,7 +26,8 @@ static async uploadData(data: UploadData, scenarioEnabled: boolean = false) {
 
   // Get all locations
   static async getLocations(): Promise<Record<string, LocationPoint[]>> {
-    const response = await api.get('/locations')
+   console.log(api); 
+   const response = await api.get('/locations')
     return response.data
   }
 

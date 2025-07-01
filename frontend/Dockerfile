@@ -1,5 +1,5 @@
 # Development stage
-FROM node:18-alpine as development
+FROM node:22.17.0-alpine as development
 
 WORKDIR /app
 
@@ -18,16 +18,19 @@ EXPOSE 3000
 # Start development server
 CMD ["npm", "start"]
 
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
 # Production build stage
-FROM node:18-alpine as build
+FROM node:22.17.0-alpine as build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --only=production
+RUN npm ci
 COPY . .
 RUN npm run build
 
 # Production stage
 FROM nginx:alpine as production
-COPY --from=build /app/build /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

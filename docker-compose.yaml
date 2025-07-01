@@ -25,16 +25,31 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: development
+      target: production
+      args:
+        VITE_API_URL: ${VITE_API_URL}
     container_name: supply_chain_frontend
     ports:
       - "3000:3000"
     environment:
-      REACT_APP_API_URL: http://localhost:8000/api/v1
+      VITE_API_UR:: ${VITE_API_URL}
     volumes:
       - ./frontend:/app
       - /app/node_modules
     depends_on:
+      - backend
+    networks:
+      - supply_chain_network
+    # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: supply_chain_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - frontend
       - backend
     networks:
       - supply_chain_network
